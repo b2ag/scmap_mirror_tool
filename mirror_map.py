@@ -697,8 +697,7 @@ def write_output_scmap( path_to_old_scmap, path_to_new_scmap, infos ):
                             new_scmap.write( scmap.read( infos['offsets']['decals_start'] - scmap.tell() ))
                         write_decals( new_scmap, infos['decals'] )
                         decals_written = True
-                        if scmap.tell() != infos['offsets']['decals_end']:
-                            scmap.seek(infos['offsets']['decals_end'])
+                        scmap.seek(infos['offsets']['decals_end'])
                         continue
                     else:
                         new_scmap.write( scmap.read( want_seek - scmap.tell() ))
