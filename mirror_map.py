@@ -673,8 +673,6 @@ class MapParsingException(Exception):
 def write_output_scmap( path_to_old_scmap, path_to_new_scmap, infos ):
     with open(path_to_old_scmap,'rb') as scmap:
         with open(path_to_new_scmap,'wb') as new_scmap:
-
-
             decals_written = False
             for image_name in infos['images']:
                 start_offset = infos['offsets']['{}_start'.format(image_name)]
