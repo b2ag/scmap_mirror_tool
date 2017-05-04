@@ -39,6 +39,7 @@ Installation (Windows)
   * [Find and remember ImageMagick path](#find-and-remember-imagemagick-path)
   * [Download and install Python 3.5](#download-and-install-python-35-32-bit)
   * [Find and remember Python 3.5 path](#find-and-remember-python-35-path)
+  * [Find and remember SC gamedata path](#find-and-remember-sc-gamedata-path)
   * [Copy and update mirror Batch script](#copy-and-update-mirror-batch-script)
   * [Running first time](#running-first-time)
 
@@ -51,6 +52,8 @@ Installation (Windows)
 ![Python website download page with marking for version 3.5](doc/2.2-download_and_install_python35_continued.png?raw=true "Download and install Python 3.5")
 ## Find and remember Python 3.5 path
 ![Python 3.5 directory in Explorer window](doc/2.3-find_and_remember_python_path.png?raw=true "Find and remember Python 3.5 path")
+## Find and remember SC gamedata path
+![Supreme Commander gamedata in Explorer window](doc/3-find_and_rembember_gamedata_path.png?raw=true "Find and remember SC gamedata path")
 ## Copy and update mirror Batch script
 ![Mirror Batch script contents](doc/4-copy_and_update_mirror_batch_script.png?raw=true "Copy and update mirror Batch script")
 Put in all the pathes you remebered and maybe change `--mirror-axis` and/or add a `--keep-side=2` parameter.
