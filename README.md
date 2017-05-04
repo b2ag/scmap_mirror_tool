@@ -31,7 +31,7 @@ Known Issues
 
 Using a Command Line Orientated Script with Windows
 =================================================
-I didn't use Windows while implementing this script. I did only use Windows running in a VM to make some of theses screenshots below. Thing is, Windows sucks at the command line. That's why you Windows users need a [mirror_batch_example_theta.bat](mirror_batch_example_theta.bat) file. You will have to fill in all your Python/ImageMagick/Maps pathes there, because you wouldn't want to do that in a Windows terminal. Some advice would be to create a copy of that file for every map you want to mirror. You will change this file more than once and you need to understand most of it. The file contains a usage/help text from the mirror script as reference to the mirror script command line.
+I didn't use Windows while implementing this script. I did only use Windows running in a VM to make some of theses screenshots below. Thing is, Windows is bad at the command line. That's why you Windows users need a [mirror_batch_example_theta.bat](mirror_batch_example_theta.bat) file. You will have to fill in all your Python/ImageMagick/Maps pathes there, because you wouldn't want to do that in a Windows terminal. Some advice would be to create a copy of that file for every map you want to mirror. You will change this file more than once and you need to understand most of it. The file contains a usage/help text from the mirror script as reference to the mirror script command line.
 
 Installation (Windows)
 ======================
