@@ -664,18 +664,11 @@ def change_value_by_path_regex( regEx, func, luaTable, rootTable=None, path='' )
         elif lupa.lua_type(v) == 'function':
             change_value_by_path_regex( regEx, func, v(), rootTable, newPath )
 
-
 class MapParsingException(Exception):
     def __init__( self, subject, fileObject ):
         self.offset = fileObject.tell()
         self.message = "Couldn't parse {} before offset {} ".format( subject, self.offset )
         super(Exception, self).__init__( self.message )
-
-def getOffsetsFromMap( path_to_old_scmap, offsets ):
-    if type( offsets ) is not dict:
-        raise Exception("Offsets parameter needs to have type of dict.")
-
-
 
 def write_output_scmap( path_to_old_scmap, path_to_new_scmap, infos ):
     with open(path_to_old_scmap,'rb') as scmap:
@@ -713,12 +706,10 @@ def write_output_scmap( path_to_old_scmap, path_to_new_scmap, infos ):
                 while scmap.tell() < want_seek:
                     # fill in decals
                     if not decals_written and want_seek > infos['offsets']['decals_start']:
-                        if scmap.tell() != infos['offsets']['decals_start']:
-                            new_scmap.write( scmap.read( infos['offsets']['decals_start'] - scmap.tell() ))
+                        new_scmap.write( scmap.read( infos['offsets']['decals_start'] - scmap.tell() ))
                         write_decals( new_scmap, infos['decals'] )
                         decals_written = True
-                        if scmap.tell() != infos['offsets']['decals_end']:
-                            scmap.seek(infos['offsets']['decals_end'])
+                        scmap.seek(infos['offsets']['decals_end'])
                         continue
                     else:
                         new_scmap.write( scmap.read( want_seek - scmap.tell() ))

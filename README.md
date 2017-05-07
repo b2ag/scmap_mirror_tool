@@ -31,7 +31,7 @@ Known Issues
 
 Using a Command Line Orientated Script with Windows
 =================================================
-I didn't use Windows while implementing this script. I did only use Windows running in a VM to make some of theses screenshots below. Thing is, Windows sucks at the command line. That's why you Windows users need a [mirror_batch_example_theta.bat](mirror_batch_example_theta.bat) file. You will have to fill in all your Python/ImageMagick/Maps pathes there, because you wouldn't want to do that in a Windows terminal. Some advice would be to create a copy of that file for every map you want to mirror. You will change this file more than once and you need to understand most of it. The file contains a usage/help text from the mirror script as reference to the mirror script command line.
+I didn't use Windows while implementing this script. I did only use Windows running in a VM to make some of theses screenshots below. Thing is, Windows is bad at the command line. That's why you Windows users need a [mirror_batch_example_theta.bat](mirror_batch_example_theta.bat) file. You will have to fill in all your Python/ImageMagick/Maps pathes there, because you wouldn't want to do that in a Windows terminal. Some advice would be to create a copy of that file for every map you want to mirror. You will change this file more than once and you need to understand most of it. The file contains a usage/help text from the mirror script as reference to the mirror script command line.
 
 Installation (Windows)
 ======================
@@ -39,6 +39,7 @@ Installation (Windows)
   * [Find and remember ImageMagick path](#find-and-remember-imagemagick-path)
   * [Download and install Python 3.5](#download-and-install-python-35-32-bit)
   * [Find and remember Python 3.5 path](#find-and-remember-python-35-path)
+  * [Find and remember SC gamedata path](#find-and-remember-sc-gamedata-path)
   * [Copy and update mirror Batch script](#copy-and-update-mirror-batch-script)
   * [Running first time](#running-first-time)
 
@@ -51,6 +52,8 @@ Installation (Windows)
 ![Python website download page with marking for version 3.5](doc/2.2-download_and_install_python35_continued.png?raw=true "Download and install Python 3.5")
 ## Find and remember Python 3.5 path
 ![Python 3.5 directory in Explorer window](doc/2.3-find_and_remember_python_path.png?raw=true "Find and remember Python 3.5 path")
+## Find and remember SC gamedata path
+![Supreme Commander gamedata in Explorer window](doc/3-find_and_rembember_gamedata_path.png?raw=true "Find and remember SC gamedata path")
 ## Copy and update mirror Batch script
 ![Mirror Batch script contents](doc/4-copy_and_update_mirror_batch_script.png?raw=true "Copy and update mirror Batch script")
 Put in all the pathes you remebered and maybe change `--mirror-axis` and/or add a `--keep-side=2` parameter.
