@@ -680,10 +680,30 @@ def getOffsetsFromMap( path_to_old_scmap, offsets ):
 def write_output_scmap( path_to_old_scmap, path_to_new_scmap, infos ):
     with open(path_to_old_scmap,'rb') as scmap:
         with open(path_to_new_scmap,'wb') as new_scmap:
-
-
             decals_written = False
-            for image_name in infos['images']:
+
+            scmap.seek( 0, os.SEEK_END )
+            old_scmap_file_size = scmap.tell()
+            scmap.seek( 0 )
+
+            image_sections = list(infos['images'])
+            while len(image_sections) > 0:
+
+                # find image section with lowest start offset
+                read_cursor = scmap.tell()
+                min_start_offset = old_scmap_file_size
+                min_start_offset_image_name = 'invalid'
+                for image_name in image_sections:
+                    start_offset = infos['offsets']['{}_start'.format(image_name)]
+                    if start_offset < min_start_offset:
+                        min_start_offset = start_offset
+                        min_start_offset_image_name = image_name
+
+                assert( min_start_offset_image_name != 'invalid' )
+                image_sections.remove( min_start_offset_image_name )
+
+                image_name = min_start_offset_image_name
+
                 start_offset = infos['offsets']['{}_start'.format(image_name)]
                 has_length_prefix = infos['offsets']['{}_length_prefix'.format(image_name)]
                 end_offset = infos['offsets']['{}_end'.format(image_name)]
