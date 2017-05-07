@@ -1,17 +1,18 @@
 SET PYTHON=C:\Users\local_admin\AppData\Local\Programs\Python\Python35-32
 SET MIRRORSCRIPT=mirror_map.py
-SET IMAGEMAGICK=C:\Program Files\ImageMagick-7.0.5-Q8\magick.exe
+SET IMAGEMAGICKEXE=C:\Program Files\ImageMagick-7.0.5-Q8\magick.exe
 SET GAMEDATA=C:\your_supcom_gamedata
-SET INFILE=G:\Maps\theta_passage_ultimate.v0001\theta_passage_ultimate.scmap
-SET OUTFILE=G:\Maps\theta_passage_ultimate.v0002\theta_passage_ultimate.scmap
-SET OUT_VERSION=v0002
+SET INFILE=F:\Maps\2v2 sand box.v0001\2v2 sand box.scmap
+SET OUTFILE=F:\Maps\2v2 sand box.v0001 - mirror\2v2 sand box.scmap
+SET OUT_VERSION=v0001
+SET MIRROR="xy"
 
 : Install lupa and docopt
 "%PYTHON%\Scripts\pip.exe" install "https://github.com/FAForever/python-wheels/releases/download/1.0.2/lupa-1.3-cp35-cp35m-win32.whl"
 "%PYTHON%\Scripts\pip.exe" install docopt
 
 : Run mirror script
-"%PYTHON%\python.exe" "%MIRRORSCRIPT%" "%INFILE%" "%OUTFILE%" --map-version %OUT_VERSION% --supcom-gamedata="%GAMEDATA%" --imagemagick="%IMAGEMAGICK%" --mirror-axis=xy
+"%PYTHON%\python.exe" "%MIRRORSCRIPT%" "%INFILE%" "%OUTFILE%" --map-version %OUT_VERSION% --supcom-gamedata="%GAMEDATA%" --imagemagick="%IMAGEMAGICKEXE%" --mirror-axis=%MIRROR%
 
 : Help text of mirror script
 :   Usage:
