@@ -1,4 +1,5 @@
-from struct import unpack, calcsize
+from struct import pack, unpack, calcsize
+import math
 
 SCMAPMAGIC = b'\x4d\x61\x70\x1a'
 DDSMAGIC = b'DDS '
@@ -16,15 +17,7 @@ class EmbeddedScMapImage( object ):
     extension = 'bin'
     has_header = False
     def __init__( self, data ):
-        self.data = data
-
-class EmbeddedScMapDDSImage( EmbeddedScMapImage ):
-    extension = 'dds'
-    has_header = True
-    def __init__( self, data, size, is_normal_map=False ):
-        super().__init__( data )
-        self.size = size
-        self.is_normal_map = is_normal_map
+        self.data = bytearray(data)
 
 class EmbeddedScMapGrayImage( EmbeddedScMapImage ):
     extension = 'gray'
@@ -32,6 +25,107 @@ class EmbeddedScMapGrayImage( EmbeddedScMapImage ):
         super().__init__( data )
         self.size = size
         self.depth = depth
+
+class EmbeddedScMapDDSImage( EmbeddedScMapImage ):
+    class FormatException(Exception):
+        pass
+    # https://msdn.microsoft.com/de-de/library/windows/desktop/bb943982(v=vs.85).aspx
+    extension = 'dds'
+    has_header = True
+    def __init__( self, data, is_normal_map=False ):
+        super().__init__( data )
+        self.flags = unpack('I',data[2*4:3*4])[0]
+        self.height = unpack('I',data[3*4:4*4])[0]
+        self.width = unpack('I',data[4*4:5*4])[0]
+        self.pitch_or_linear_size = unpack('I',data[5*4:6*4])[0]
+        self.depth = unpack('I',data[6*4:7*4])[0]
+        self.mip_map_count = unpack('I',data[7*4:8*4])[0]
+        self.flags2 = unpack('I',data[20*4:21*4])[0]
+        self.four_cc = data[21*4:22*4]
+        self.rgb_bit_count = unpack('I',data[22*4:23*4])[0]
+        self.red_bit_mask = unpack('I',data[23*4:24*4])[0]
+        self.green_bit_mask = unpack('I',data[24*4:25*4])[0]
+        self.blue_bit_mask = unpack('I',data[25*4:26*4])[0]
+        self.alpha_bit_mask = unpack('I',data[26*4:27*4])[0]
+        self.caps = unpack('I',data[27*4:28*4])[0]
+        self.caps2 = unpack('I',data[28*4:29*4])[0]
+        self.caps3 = unpack('I',data[29*4:30*4])[0]
+        self.caps4 = unpack('I',data[30*4:31*4])[0]
+        #self.debug_print()
+        self.size = ( int(self.width), int(self.height) )
+        self.is_normal_map = is_normal_map
+        self.has_uncompressed_rgb_data = self.flags2 & 0x40
+        self.mip_map_infos = [ (128,self.size) ]
+        for mip_map_level in range(1,self.mip_map_count):
+            previous_offset, previous_size = self.mip_map_infos[mip_map_level-1]
+            previous_data_size = previous_size[0]*previous_size[1]
+            _size = ( previous_size[0] // 2, previous_size[1] // 2 )
+            self.mip_map_infos.append( (previous_offset+previous_data_size,_size ) )
+        pixel_count = self.size[0] * self.size[1]
+    def get_block( self, x, y, mip_map_level ):
+        if self.four_cc != b'DXT5':
+            raise self.FormatException()
+        mip_map_offset, mip_map_size = self.mip_map_infos[mip_map_level]
+        block_offset = mip_map_offset + ( mip_map_size[0]//4 * int(y) + int(x) ) * 16
+        pixel_offset = int(y)*4 + int(x)
+        a0 = self.data[block_offset+0]
+        a1 = self.data[block_offset+1]
+        pixel_alphas = sum([ self.data[block_offset+2+i] << i*8 for i in range(6) ])
+        pixel_alphas = [ ( pixel_alphas & ( 7 << i*3 )) >> i*3 for i in range(16) ]
+        #pixel_alphas = ( pixel_alphas & ( 7 << pixel_offset*3 )) >> pixel_offset*3
+        c0 = self.data[block_offset+8:block_offset+10]
+        c1 = self.data[block_offset+10:block_offset+12]
+        pixel_colors = sum([ self.data[block_offset+12+i] << i*8 for i in range(4) ])
+        pixel_colors = [ ( pixel_colors & ( 3 << i*2 )) >> i*2 for i in range(16) ]
+        #pixel_colors = ( pixel_colors & ( 3 << pixel_offset*2 ))
+        return ( a0, a1, pixel_alphas, c0, c1, pixel_colors )
+    def set_block( self, x, y, mip_map_level, data, update_pallets=True ):
+        if self.four_cc != b'DXT5':
+            raise self.FormatException()
+        mip_map_offset, mip_map_size = self.mip_map_infos[mip_map_level]
+        block_offset = mip_map_offset + ( mip_map_size[0]//4 * int(y) + int(x) ) * 16
+        pixel_offset = int(y)*4 + int(x)
+        ( a0, a1, pixel_alphas, c0, c1, pixel_colors ) = data
+        if update_pallets:
+            self.data[block_offset+0] = a0
+            self.data[block_offset+1] = a1
+        pixel_alphas = sum([ pixel_alphas[i] << i*3 for i in range(16) ])
+        #_pixel_alphas = sum([ self.data[block_offset+2+i] << i*8 for i in range(6) ])
+        #pixel_alphas = ( _pixel_alphas & ( 3 << pixel_offset*3 )) | ( pixel_alphas << pixel_offset*3 )
+        self.data[block_offset+2:block_offset+8] = bytes([ ( pixel_alphas & ( 0xff << i*8 ) ) >> i*8 for i in range(6) ])
+        if update_pallets:
+            self.data[block_offset+8:block_offset+10] = c0
+            self.data[block_offset+10:block_offset+12] = c1
+        pixel_colors = sum([ pixel_colors[i] << i*2 for i in range(16) ])
+        #_pixel_colors = sum([ self.data[block_offset+12+i] << i*8 for i in range(4) ])
+        #pixel_colors = ( _pixel_colors & ( 3 << pixel_offset*3 )) | ( pixel_colors << pixel_offset*3 )
+        self.data[block_offset+12:block_offset+16] = bytes([ ( pixel_colors & ( 0xff << i*8 ) ) >> i*8 for i in range(4) ])
+    def as_grays( self ):
+        if not self.has_uncompressed_rgb_data:
+            raise self.FormatException()
+        pixel_count = self.size[0] * self.size[1]
+        channels = [ bytearray(pixel_count) for _ in range(4) ]
+        for i in range( pixel_count ):
+            pixel = self.data[128+i*4:128+i*4+5]
+            for ch in range(4):
+                channels[ch][i] = pixel[ch]
+        grays = []
+        for ch in range(4):
+            grays.append( EmbeddedScMapGrayImage( channels[ch], self.size, '8' ) )
+        return tuple(grays)
+    def from_grays( self, grays ):
+        assert( self.has_uncompressed_rgb_data )
+        for gray in grays:
+         assert( gray.size == self.size and gray.depth == '8' )
+        pixel_count = self.size[0] * self.size[1]
+        channels = [ bytearray(pixel_count) for _ in range(4) ]
+        for i in range( pixel_count ):
+            pixel = bytearray(4)
+            for ch in range(4):
+                pixel[ch] = grays[ch].data[i]
+            self.data[128+i*4:128+i*4+5] = pixel
+    def debug_print( self ):
+        print("{}x{} flags:{:08x} pitch_or_linear_size:{} depth:{} mip_map_count:{} flags2:{:08x} four_cc:{} rgb_bit_count:{} caps:{:08x} caps2:{:08x} caps3:{:08x} caps4:{:08x} red_bit_mask:{:08x} green_bit_mask:{:08x} blue_bit_mask:{:08x} alpha_bit_mask:{:08x} data_size:{}".format(self.width,self.height,self.flags,self.pitch_or_linear_size,self.depth,self.mip_map_count,self.flags2,self.four_cc,self.rgb_bit_count,self.caps,self.caps2,self.caps3,self.caps4,self.red_bit_mask,self.green_bit_mask,self.blue_bit_mask,self.alpha_bit_mask,len(self.data)))
 
 def read_scmap( scmap_path, debug_print_enabled=False ):
 
@@ -79,7 +173,7 @@ def read_scmap( scmap_path, debug_print_enabled=False ):
             raise MapParsingException( "preview image data length", scmap )
         preview_data = scmap.read(preview_data_length)
         infos['offsets']['preview_end'] = scmap.tell()
-        infos['images']['preview'] = EmbeddedScMapDDSImage( preview_data, size=(256,256) )
+        infos['images']['preview'] = EmbeddedScMapDDSImage( preview_data )
         if len(preview_data) != preview_data_length:
             raise MapParsingException( "preview image data ({} bytes)".format(preview_data_length), scmap )
         debug_print( "preview_data_length", "{} bytes".format(preview_data_length) )
@@ -470,7 +564,7 @@ def read_scmap( scmap_path, debug_print_enabled=False ):
             normal_map_data_length = unpack('I', scmap.read(4) )[0]
             normal_map_data = scmap.read(normal_map_data_length)
             infos['offsets']['{}_end'.format(name)] = scmap.tell()
-            infos['images'][name] = EmbeddedScMapDDSImage( normal_map_data, size=map_size, is_normal_map=True )
+            infos['images'][name] = EmbeddedScMapDDSImage( normal_map_data, is_normal_map=True )
             debug_print( "normal_map_data_length", normal_map_data_length )
             debug_print( "normal_map_data", "{}...".format(normal_map_data[:4]) )
 
@@ -485,7 +579,7 @@ def read_scmap( scmap_path, debug_print_enabled=False ):
         debug_print( "stratum_1to4_data_length", stratum_1to4_data_length )
         stratum_1to4_data = scmap.read(stratum_1to4_data_length)
         infos['offsets']['stratum_1to4_end'] = scmap.tell()
-        infos['images']['stratum_1to4'] = EmbeddedScMapDDSImage( stratum_1to4_data, size=half_map_size )
+        infos['images']['stratum_1to4'] = EmbeddedScMapDDSImage( stratum_1to4_data )
         debug_print( "stratum_1to4_data", "{}...".format(stratum_1to4_data[:4]) )
 
         if file_version_minor < 56:
@@ -499,7 +593,7 @@ def read_scmap( scmap_path, debug_print_enabled=False ):
         debug_print( "stratum_5to8_data_length", stratum_5to8_data_length )
         stratum_5to8_data = scmap.read(stratum_5to8_data_length)
         infos['offsets']['stratum_5to8_end'] = scmap.tell()
-        infos['images']['stratum_5to8'] = EmbeddedScMapDDSImage( stratum_5to8_data, size=half_map_size )
+        infos['images']['stratum_5to8'] = EmbeddedScMapDDSImage( stratum_5to8_data )
         debug_print( "stratum_5to8_data", "dds{}...".format(stratum_5to8_data[:4]) )
 
         if file_version_minor > 53:
@@ -511,7 +605,7 @@ def read_scmap( scmap_path, debug_print_enabled=False ):
             water_brush_data_length = unpack('I', scmap.read(4) )[0]
             water_brush_data = scmap.read(water_brush_data_length)
             infos['offsets']['water_brush_end'] = scmap.tell()
-            infos['images']['water_brush'] = EmbeddedScMapDDSImage( water_brush_data, size=half_map_size )
+            infos['images']['water_brush'] = EmbeddedScMapDDSImage( water_brush_data )
             debug_print( "water_brush_data_length", water_brush_data_length )
             debug_print( "water_brush_data", "{}...".format(water_brush_data[:4]) )
 
