@@ -11,8 +11,8 @@ import subprocess
 import sys
 import tempfile
 from zipfile import ZipFile
-from read_scmap import read_scmap, EmbeddedScMapGrayImage
-
+from read_scmap import read_scmap, EmbeddedScMapGrayImage, EmbeddedScMapDDSImage
+from PIL import Image
 
 def main():
 
@@ -29,6 +29,7 @@ def main():
         --keep-side=<1|2>          side=1|2 [default: 1]
         --map-version=v<n>         [default: v0001]
         --not-mirror-scmap-images  Don't mirror images saved in scmap
+        --not-mirror-decal-images  Don't mirror decals
         --debug-read-scmap         Debug scmap parsing
         --debug-decals-position    Debug decal fun
         --dump-scmap-images        Dump images saved in scmap
@@ -53,150 +54,13 @@ def main():
     ImageMagicConvert = args['--imagemagick']
     decals_archivePath = '{}/env.scd'.format(args['--supcom-gamedata'])
     mirror_scmap_images = not args['--not-mirror-scmap-images']
+    mirror_decal_images = not args['--not-mirror-decal-images']
     debug_read_scmap = args['--debug-read-scmap']
     debug_decals_position = args['--debug-decals-position']
     dump_scmap_images = args['--dump-scmap-images']
 
     map_infos = read_scmap( path_to_infile_scmap, debug_print_enabled=debug_read_scmap )
 
-    if mirror_axis == 'x':
-        def translate_position( position, map_size ):
-            return ( ( map_size[0] - position[0] ), position[1], position[2] )
-        def rotate_decal(rotation):
-            return ( rotation[2], math.pi/2 - rotation[1], -rotation[0] )
-        def rotate_prop( rotationX, rotationY, rotationZ ):
-            rad = math.acos( rotationX[0] ) + math.pi
-            new_rotationX = (  math.cos(rad),  rotationX[1], math.sin(rad) )
-            new_rotationY = (  rotationY[0],   rotationY[1], rotationY[2]  )
-            new_rotationZ = ( -math.sin(rad),  rotationZ[1], math.cos(rad) )
-            return ( new_rotationX, new_rotationY, new_rotationZ )
-    elif mirror_axis == 'y':
-        def translate_position( position, map_size ):
-            return ( position[0], position[1], ( map_size[1] - position[2] ) )
-        def rotate_decal(rotation):
-            return ( rotation[2], math.pi/2 - rotation[1], -rotation[0] )
-        def rotate_prop( rotationX, rotationY, rotationZ ):
-            rad = math.acos( rotationX[0] ) + math.pi
-            new_rotationX = (  math.cos(rad),  rotationX[1], math.sin(rad) )
-            new_rotationY = (  rotationY[0],   rotationY[1], rotationY[2]  )
-            new_rotationZ = ( -math.sin(rad),  rotationZ[1], math.cos(rad) )
-            return ( new_rotationX, new_rotationY, new_rotationZ )
-    elif mirror_axis == 'xy':
-        def translate_position( position, map_size ):
-            m = map_size[0] / map_size[1]
-            return ( position[2]*m, position[1], position[0]/m )
-        def rotate_decal(rotation):
-            return ( rotation[2], -rotation[1], -rotation[0] )
-        # not really posible to mirror the mesh by rotation...
-        def rotate_prop( rotationX, rotationY, rotationZ ):
-            rad = math.acos( rotationX[0] ) + math.pi
-            new_rotationX = (  math.cos(rad),  rotationX[1], math.sin(rad) )
-            new_rotationY = (  rotationY[0],   rotationY[1], rotationY[2]  )
-            new_rotationZ = ( -math.sin(rad),  rotationZ[1], math.cos(rad) )
-            return ( new_rotationX, new_rotationY, new_rotationZ )
-    else:
-        raise Exception("IMPLEMENT ME!!!")
-
-
-    def mirror_props( map_infos ):
-        new_props = []
-        for prop in map_infos['props']:
-            (blueprintPath,position,rotationX,rotationY,rotationZ,scale) = prop
-            # create mirrored parameters
-            new_position = translate_position( position, map_infos['map_size'] )
-            new_rotation = rotate_prop(rotationX,rotationY,rotationZ)
-            # add version with mirrored parameters to props list
-            new_props.append( (blueprintPath,new_position,*new_rotation,scale) )
-        map_infos['props'] += new_props
-
-    def mirror_decals( map_infos, decals_archivePath, new_map_directory, decals_path_prefix ):
-
-        def generate_mirrored_decal( decals_archive, decal_to_mirror, is_normal_map ):
-            if not decal_to_mirror:
-                return b''
-            new_decal_path = new_map_directory + '/flop_and_rotate_90' + decal_to_mirror
-            new_decal_ingame_path = '{}/flop_and_rotate_90{}'.format( decals_path_prefix, decal_to_mirror )
-            if os.path.exists( new_decal_path ):
-                return new_decal_ingame_path.encode()
-
-            print("Converting {}".format(new_decal_path))
-
-            with decals_archive.open(decals_archive.decals_case_insensitive_lookup[decal_to_mirror[1:].lower()]) as decalTexture:
-                original_decal_temp_file_name = tempfile.NamedTemporaryFile().name
-                with open(original_decal_temp_file_name,'wb') as original_decal_temp_file:
-                    original_decal_temp_file.write( decalTexture.read() )
-                    original_decal_temp_file_name = original_decal_temp_file.name
-
-                os.makedirs( os.path.dirname( new_decal_path ), exist_ok = True )
-                cmd = [ImageMagicConvert,
-                        original_decal_temp_file.name,
-                        "-flop","-rotate","-90",
-                        # fix rotation in normals
-                        *((  "-channel", "rgba",
-                            "-separate", "-swap", "1,3",
-                            "-combine" )
-                        if is_normal_map else ()),
-                        new_decal_path]
-                print("running {}".format(' '.join(cmd)))
-                subprocess.run(cmd)
-                os.unlink(original_decal_temp_file_name)
-
-            return new_decal_ingame_path.encode()
-
-        new_decals = []
-        decals_count = len(map_infos['decals'])
-
-        with ZipFile( decals_archivePath, 'r' ) as decals_archive:
-            decals_archive.decals_case_insensitive_lookup = { s.lower():s for s in decals_archive.namelist() }
-
-            for decal in map_infos['decals']:
-                (
-                    decal_id,decalType,unknown15,
-                    decals_texture1_path,decals_texture2_path,
-                    scale,position,rotation,
-                    cut_off_lod,near_cut_off_lod,remove_tick
-                ) = decal
-
-                new_position = translate_position( position, map_infos['map_size'] )
-                new_rotation = rotate_decal( rotation )
-
-                is_normal_map = ( decalType == 2 )
-
-                if debug_decals_position:
-                    # switch normals to albedo for debugging
-                    decalType = 1
-                    decal[1] = 1
-
-                    # place theta bridges at decal position with decal rotation
-                    map_infos['propsList'] += [(
-                            b'/env/redrocks/props/thetabridge01_prop.bp',
-                            position,
-                            (-math.cos(rotation[1]),0,-math.sin(rotation[1])),
-                            (0,1,0),
-                            (math.sin(rotation[1]),0,-math.cos(rotation[1])),
-                            (1,1,1))]
-                    map_infos['propsList'] += [(
-                            b'/env/redrocks/props/thetabridge01_prop.bp',
-                            new_position,
-                            (-math.cos(new_rotation[1]),0,-math.sin(new_rotation[1])),
-                            (0,1,0),
-                            (math.sin(new_rotation[1]),0,-math.cos(new_rotation[1])),
-                            (1,1,1))]
-
-                new_decals_texture1_path = generate_mirrored_decal( decals_archive, decals_texture1_path.decode(), is_normal_map )
-                new_decals_texture2_path = generate_mirrored_decal( decals_archive, decals_texture2_path.decode(), is_normal_map )
-
-                new_decals.append([
-                    decals_count+decal_id,decalType,unknown15,
-                    new_decals_texture1_path,new_decals_texture2_path,
-                    scale,new_position,new_rotation,
-                    cut_off_lod,near_cut_off_lod,remove_tick
-                ])
-
-        map_infos['decals'] += new_decals
-
-    mirror_props( map_infos )
-    mirror_decals( map_infos, decals_archivePath, new_map_directory, decals_path_prefix )
 
     def filter_constant_pixels( pixel_coord, mirror_axis, keep_side, image ):
         half_width = int(image.size[0]/2)
@@ -362,6 +226,145 @@ def main():
             subprocess.run( cmd )
 
 
+    if mirror_axis == 'x':
+        def translate_position( position, map_size ):
+            return ( ( map_size[0] - position[0] ), position[1], position[2] )
+        def rotate_decal(rotation):
+            return ( rotation[2], math.pi/2 - rotation[1], -rotation[0] )
+        def rotate_prop( rotationX, rotationY, rotationZ ):
+            rad = math.acos( rotationX[0] ) + math.pi
+            new_rotationX = (  math.cos(rad),  rotationX[1], math.sin(rad) )
+            new_rotationY = (  rotationY[0],   rotationY[1], rotationY[2]  )
+            new_rotationZ = ( -math.sin(rad),  rotationZ[1], math.cos(rad) )
+            return ( new_rotationX, new_rotationY, new_rotationZ )
+    elif mirror_axis == 'y':
+        def translate_position( position, map_size ):
+            return ( position[0], position[1], ( map_size[1] - position[2] ) )
+        def rotate_decal(rotation):
+            return ( rotation[2], math.pi/2 - rotation[1], -rotation[0] )
+        def rotate_prop( rotationX, rotationY, rotationZ ):
+            rad = math.acos( rotationX[0] ) + math.pi
+            new_rotationX = (  math.cos(rad),  rotationX[1], math.sin(rad) )
+            new_rotationY = (  rotationY[0],   rotationY[1], rotationY[2]  )
+            new_rotationZ = ( -math.sin(rad),  rotationZ[1], math.cos(rad) )
+            return ( new_rotationX, new_rotationY, new_rotationZ )
+    elif mirror_axis == 'xy':
+        def translate_position( position, map_size ):
+            m = map_size[0] / map_size[1]
+            return ( position[2]*m, position[1], position[0]/m )
+        def rotate_decal(rotation):
+            return ( rotation[2], -rotation[1], -rotation[0] )
+        # not really posible to mirror the mesh by rotation...
+        def rotate_prop( rotationX, rotationY, rotationZ ):
+            rad = math.acos( rotationX[0] ) + math.pi
+            new_rotationX = (  math.cos(rad),  rotationX[1], math.sin(rad) )
+            new_rotationY = (  rotationY[0],   rotationY[1], rotationY[2]  )
+            new_rotationZ = ( -math.sin(rad),  rotationZ[1], math.cos(rad) )
+            return ( new_rotationX, new_rotationY, new_rotationZ )
+    else:
+        raise Exception("IMPLEMENT ME!!!")
+
+    def mirror_decals( map_infos, decals_archivePath, new_map_directory, decals_path_prefix ):
+
+        def generate_mirrored_decal( decals_archive, decal_to_mirror, is_normal_map ):
+            if not decal_to_mirror:
+                return b''
+            new_decal_path = new_map_directory + '/flop_and_rotate_90' + decal_to_mirror
+            new_decal_ingame_path = '{}/flop_and_rotate_90{}'.format( decals_path_prefix, decal_to_mirror )
+            if os.path.exists( new_decal_path ):
+                return new_decal_ingame_path.encode()
+
+            with decals_archive.open(decals_archive.decals_case_insensitive_lookup[decal_to_mirror[1:].lower()]) as decal_texture:
+                decal_texture_data = decal_texture.read()
+                blubb = EmbeddedScMapDDSImage( decal_texture_data )
+                original_decal_temp_file_name = tempfile.NamedTemporaryFile( suffix='.dds' ).name
+                with open(original_decal_temp_file_name,'wb') as original_decal_temp_file:
+                    original_decal_temp_file.write( decal_texture_data )
+                    original_decal_temp_file_name = original_decal_temp_file.name
+
+                os.makedirs( os.path.dirname( new_decal_path ), exist_ok = True )
+                cmd = [ImageMagicConvert,
+                        original_decal_temp_file.name,
+                        "-flop","-rotate","-90",
+                        # fix rotation in normals
+                        #*( ( "-channel-fx", "green<=>alpha") if is_normal_map else () ),
+                        new_decal_path]
+                print("running {}".format(' '.join(cmd)))
+                completed_process = subprocess.run(cmd)
+                os.unlink(original_decal_temp_file_name)
+                if completed_process.returncode != 0:
+                    raise Exception("Error running {}".format(' '.join(cmd)))
+
+            return new_decal_ingame_path.encode()
+
+        new_decals = []
+        decals_count = len(map_infos['decals'])
+
+        with ZipFile( decals_archivePath, 'r' ) as decals_archive:
+            decals_archive.decals_case_insensitive_lookup = { s.lower():s for s in decals_archive.namelist() }
+
+            for decal in map_infos['decals']:
+                (
+                    decal_id,decalType,unknown15,
+                    decals_texture1_path,decals_texture2_path,
+                    scale,position,rotation,
+                    cut_off_lod,near_cut_off_lod,remove_tick
+                ) = decal
+
+                new_position = translate_position( position, map_infos['map_size'] )
+                new_rotation = rotate_decal( rotation )
+
+                is_normal_map = ( decalType == 2 )
+
+                if debug_decals_position:
+                    # switch normals to albedo for debugging
+                    decalType = 1
+                    decal[1] = 1
+
+                    # place theta bridges at decal position with decal rotation
+                    map_infos['propsList'] += [(
+                            b'/env/redrocks/props/thetabridge01_prop.bp',
+                            position,
+                            (-math.cos(rotation[1]),0,-math.sin(rotation[1])),
+                            (0,1,0),
+                            (math.sin(rotation[1]),0,-math.cos(rotation[1])),
+                            (1,1,1))]
+                    map_infos['propsList'] += [(
+                            b'/env/redrocks/props/thetabridge01_prop.bp',
+                            new_position,
+                            (-math.cos(new_rotation[1]),0,-math.sin(new_rotation[1])),
+                            (0,1,0),
+                            (math.sin(new_rotation[1]),0,-math.cos(new_rotation[1])),
+                            (1,1,1))]
+
+                new_decals_texture1_path = generate_mirrored_decal( decals_archive, decals_texture1_path.decode(), is_normal_map )
+                new_decals_texture2_path = generate_mirrored_decal( decals_archive, decals_texture2_path.decode(), is_normal_map )
+
+                new_decals.append([
+                    decals_count+decal_id,decalType,unknown15,
+                    new_decals_texture1_path,new_decals_texture2_path,
+                    scale,new_position,new_rotation,
+                    cut_off_lod,near_cut_off_lod,remove_tick
+                ])
+
+        map_infos['decals'] += new_decals
+
+    def mirror_props( map_infos ):
+        new_props = []
+        for prop in map_infos['props']:
+            (blueprintPath,position,rotationX,rotationY,rotationZ,scale) = prop
+            # create mirrored parameters
+            new_position = translate_position( position, map_infos['map_size'] )
+            new_rotation = rotate_prop(rotationX,rotationY,rotationZ)
+            # add version with mirrored parameters to props list
+            new_props.append( (blueprintPath,new_position,*new_rotation,scale) )
+        map_infos['props'] += new_props
+
+
+    if mirror_decal_images:
+        mirror_decals( map_infos, decals_archivePath, new_map_directory, decals_path_prefix )
+
+    mirror_props( map_infos )
 
     write_output_scmap( path_to_infile_scmap, path_to_new_scmap, map_infos )
 
