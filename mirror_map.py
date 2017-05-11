@@ -12,7 +12,6 @@ import sys
 import tempfile
 from zipfile import ZipFile
 from read_scmap import read_scmap, EmbeddedScMapGrayImage, EmbeddedScMapDDSImage
-from PIL import Image
 
 def main():
 
