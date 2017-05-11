@@ -10,20 +10,18 @@ Overview
   * Mirrors markers and units
 
 Mirror refers to mirror from center along x axis or y axis or mirror along one of both diagonals. 
-The script uses lupa to open `_save.lua` and ImageMagick to decode DDS format and mirror decals.
+The script uses lupa to open `_save.lua`.
 
 Shouts out to `HazardX` for initial reverse engineering of the scmap format, but not to forget `svenni_badbwoi` and `tokyto` for maps which needed to be mirrored and kicking off this whole thing.
 
-Known Issues
-============
-  * Mirror along y axis and diagonal yx is not implemented yet for units, props and decals
-    * It's easy to add, but need maps for testing
-  * Mirrored preview doesn't have correct lighting on mirrored side
-    * Workaround: Save mirrored version with SC map editor to get preview re-rendered 
+Limitations
+===========
   * Option "keep side" doesn't remove units/props/decals on mirror side prior to mirroring
     * This is intentional at least for decals as they can have origin on mirrored side and still span more of the original side
     * For units and props it's just not implemented
-  * Normal maps in scmap getting some special treatment, but effect is unknown
+  * Mirroring normal maps (e.g. for decals) leads to compression artifacts as a result of swapping the 8 bit alpha channel with the 6 bit green channel
+  * Mirrored preview doesn't have correct lighting on mirrored side
+    * Workaround: Save mirrored version with SC map editor to get preview re-rendered 
   * Unit meshes are not getting mirrored
     * Yeah, what can I do about this?
   * Connections between nodes are not taken into account
@@ -35,18 +33,12 @@ I didn't use Windows while implementing this script. I did only use Windows runn
 
 Installation (Windows)
 ======================
-  * [Download and install ImageMagick](#download-and-install-imagemagick)
-  * [Find and remember ImageMagick path](#find-and-remember-imagemagick-path)
   * [Download and install Python 3.5](#download-and-install-python-35-32-bit)
   * [Find and remember Python 3.5 path](#find-and-remember-python-35-path)
   * [Find and remember SC gamedata path](#find-and-remember-sc-gamedata-path)
   * [Copy and update mirror Batch script](#copy-and-update-mirror-batch-script)
   * [Running first time](#running-first-time)
 
-## Download and install ImageMagick
-![Download page on ImageMagick website](doc/1.1-download_and_install_imagemagick.png?raw=true "Download and install ImageMagick")
-## Find and remember ImageMagick path
-![ImageMagick directory in Explorer window](doc/1.2-find_and_remember_imagemagick_path.png?raw=true "Find and remember ImageMagick path")
 ## Download and install Python 3.5 (32 Bit)
 ![Python website menu](doc/2.1-download_and_install_python35.png?raw=true "Download and install Python 3.5")
 ![Python website download page with marking for version 3.5](doc/2.2-download_and_install_python35_continued.png?raw=true "Download and install Python 3.5")
@@ -60,6 +52,6 @@ Put in all the pathes you remebered and maybe change `--mirror-axis` and/or add 
 ## Running first time
 ### Lupa and docopt been installed by Python Pip
 ![](doc/5.1-running_batch_should_install_lupa_and_docopt.png?raw=true "")
-### Mirror script doing some Magick
+### Mirror script doing it's thing
 ![](doc/5.2-running_batch_should_then_process_some_images_and_do_mirror_stuff.png?raw=true "")
 ![](doc/5.3-run_batch_finishes_with_pause_command.png?raw=true "Script finished")
