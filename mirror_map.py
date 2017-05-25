@@ -62,18 +62,24 @@ def main():
 
     map_infos = read_scmap( path_to_infile_scmap, debug_print_enabled=debug_read_scmap )
 
+    # ingame positions have width/height + 1
+    # e.g. x,y in range (0,0) to (512,512)
+    map_infos['ingame_map_size'] = ( map_infos['map_size'][0]+1, map_infos['map_size'][1]+1 )
+
 
     def filter_constant_pixels( pixel_coord, mirror_axis, keep_side, size ):
+        if keep_side == -1:
+            return False
         half_width = size[0]/2
         half_height = size[1]/2
         m = size[0] / size[1]
         x,y = pixel_coord
-        if mirror_axis == 'x':
+        if mirror_axis == 'y':
             if keep_side == 1 and x >= half_width:
                 return False
             if keep_side == 2 and x < half_width:
                 return False
-        elif mirror_axis == 'y':
+        elif mirror_axis == 'x':
             if keep_side == 1 and y >= half_height:
                 return False
             if keep_side == 2 and y < half_height:
@@ -93,9 +99,9 @@ def main():
     def get_mirror_position( pixel_coord, mirror_axis, size ):
         x,y = pixel_coord
         m = size[0] / size[1]
-        if mirror_axis == 'x':
+        if mirror_axis == 'y':
             return ( size[0] - 1 - x, y )
-        elif mirror_axis == 'y':
+        elif mirror_axis == 'x':
             return ( x, size[1] - 1 - y )
         elif mirror_axis == 'xy':
             return ( y*m, x/m )
@@ -110,187 +116,55 @@ def main():
         mirror_pixel = get_mirror_position( pixel_coord, mirror_axis, size )
         return size[0]*int(mirror_pixel[1]) + int(mirror_pixel[0])
 
-    def mirror_gray_image( image, pixels, keep_pixels, mirror_axis, mirror_keep_side, mirror_source=None ):
+    def mirror_gray_image( image, pixels, keep_pixels, mirror_axis, mirror_keep_side ):
         image_data = bytearray(image.data)
-        if not mirror_source:
-            mirror_source_data = image_data
-        else:
-            mirror_source_data = bytearray(mirror_source.data)
+        mirror_source_data = bytearray(image_data)
         depth_bytes = int( int(image.depth) / 8 )
         for x,y in pixels:
             pixel_address = ( image.size[0] * y + x ) * depth_bytes
             mirror_pixel_address = get_mirror_pixel_address( (x,y), mirror_axis, image.size ) * depth_bytes
             try:
-                image_data[pixel_address] = image_data[pixel_address] if (x,y) in keep_pixels else mirror_source_data[mirror_pixel_address]
+                image_data[pixel_address:pixel_address+depth_bytes] = image_data[pixel_address:pixel_address+depth_bytes] if (x,y) in keep_pixels else mirror_source_data[mirror_pixel_address:mirror_pixel_address+depth_bytes]
             except IndexError as e:
                 print("IndexError for pixel {} and mirror pixel {} with image size {} for mirror axis {}".format((x,y), get_mirror_position( (x,y), mirror_axis, image.size ), image.size, mirror_axis))
                 raise e
             if depth_bytes > 1:
                 image_data[pixel_address+1] = image_data[pixel_address+1] if (x,y) in keep_pixels else mirror_source_data[mirror_pixel_address+1]
-        #return image_data
+        image.data = image_data
+
+    def mirror_uncompressed_dds_image( image, mirror_axis, mirror_keep_side ):
+        image_data = bytearray(image.data)
+        mirror_source_data = bytearray(image_data)
+        depth_bytes = int( int(image.depth) / 8 )
+        mip_map_size = ( image.size[0], image.size[1] )
+        for mip_map_level in range(max(image.header.mip_map_count,1)):
+            mip_map_info = image.mip_map_infos[mip_map_level]
+            mip_map_size = mip_map_info[1]
+            offset = mip_map_info[0]
+            pixels = [(x,y) for x in range(mip_map_size[0]) for y in range(mip_map_size[1])]
+            keep_pixels = set([ pixel for pixel in pixels if filter_constant_pixels( pixel, mirror_axis, mirror_keep_side, mip_map_size ) ])
+            for x,y in pixels:
+                pixel_address = offset + ( mip_map_size[0] * y + x ) * depth_bytes
+                mirror_pixel_address = offset + get_mirror_pixel_address( (x,y), mirror_axis, mip_map_size ) * depth_bytes
+                try:
+                    image_data[pixel_address:pixel_address+depth_bytes] = image_data[pixel_address:pixel_address+depth_bytes] if (x,y) in keep_pixels else mirror_source_data[mirror_pixel_address:mirror_pixel_address+depth_bytes]
+                    if image.is_normal_map:
+                        normal_component = int(image_data[pixel_address+1])
+                        image_data[pixel_address+1] = int(image_data[pixel_address+3])
+                        image_data[pixel_address+3] = normal_component
+
+                except IndexError as e:
+                    print("IndexError for mip map {} pixel {} and mirror pixel {} with image size {} for mirror axis {}".format(mip_map_level, (x,y), get_mirror_position( (x,y), mirror_axis, mip_map_size ), mip_map_size, mirror_axis))
+                    raise e
         image.data = image_data
 
     def mirror_compressed_dds_image( image, mirror_axis, mirror_keep_side ):
-        def unpack_alpha( block ):
-            alpha_pixels = []
-            a0, a1 = block[0:2]
-            for idx in block[2]:
-                if idx == 0:
-                    alpha_pixels.append( a0 )
-                elif idx == 1:
-                    alpha_pixels.append( a1 )
-                elif idx == 2:
-                    alpha_pixels.append( ((4*a0+1*a1)/5) if a0 <= a1 else ((6*a0+1*a1)/7) )
-                elif idx == 3:
-                    alpha_pixels.append( ((3*a0+2*a1)/5) if a0 <= a1 else ((5*a0+2*a1)/7) )
-                elif idx == 4:
-                    alpha_pixels.append( ((2*a0+3*a1)/5) if a0 <= a1 else ((4*a0+3*a1)/7) )
-                elif idx == 5:
-                    alpha_pixels.append( ((1*a0+4*a1)/5) if a0 <= a1 else ((3*a0+4*a1)/7) )
-                elif idx == 6:
-                    alpha_pixels.append( 0 if a0 <= a1 else ((2*a0+5*a1)/7) )
-                elif idx == 7:
-                    alpha_pixels.append( 255 if a0 <= a1 else ((1*a0+6*a1)/7) )
-                else:
-                    raise Exception("Some wired stuff happend")
-            return alpha_pixels
-        def unpack_color( block ):
-            color_pixels = []
-            c0, c1 = ( unpack('H',block[3])[0], unpack('H',block[4])[0] )
-            r0, r1 = ( ( c0 >> 11 ) & 31, ( c1 >> 11 ) & 31 )
-            g0, g1 = ( ( c0 >> 5 ) & 63, ( c1 >> 5 ) & 63 )
-            b0, b1 = ( c0 & 31, c1 & 31 )
-            # normalize to 8 bit
-            r0, r1 = ( r0*4, r1*4 )
-            g0, g1 = ( g0*4, g1*4 )
-            b0, b1 = ( b0*4, b1*4 )
-            for idx in block[5]:
-                if idx == 0:
-                    color_pixels.append( [r0, g0, b0] )
-                elif idx == 1:
-                    color_pixels.append( [r1, g1, b1] )
-                elif idx == 2:
-                    color_pixels.append(
-                        [
-                            (r0+r1)/2,
-                            (g0+g1)/2,
-                            (b0+b1)/2
-                        ] if ( r0, g0, b0 ) <= ( r1, g1, b1 ) else
-                        [
-                            (2*r0+1*r1)/3,
-                            (2*g0+1*g1)/3,
-                            (2*b0+1*b1)/3
-                        ] )
-                elif idx == 3:
-                    color_pixels.append(
-                        [
-                            0,
-                            0,
-                            0
-                        ] if ( r0, g0, b0 ) <= ( r1, g1, b1 ) else
-                        [
-                            (1*r0+2*r1)/3,
-                            (1*g0+2*g1)/3,
-                            (1*b0+2*b1)/3
-                        ] )
-                else:
-                    raise Exception("Some wired stuff happend")
-            return color_pixels
-        def pack_alpha( pixels ):
-            try:
-                new_a0 = min([ color for color in pixels if color != 0 ])
-                new_a1 = max([ color for color in pixels if color != 0 and color != 255 ])
-            except ValueError as e:
-                new_a0 = 0
-                new_a1 = 0
-            packed_pixels = []
-            pallet = [
-                new_a0,
-                new_a1,
-                ((4*new_a0+1*new_a1)/5),
-                ((3*new_a0+2*new_a1)/5),
-                ((2*new_a0+3*new_a1)/5),
-                ((1*new_a0+4*new_a1)/5) ]
-            for color in pixels:
-                if color == 0:
-                    packed_pixels.append(6)
-                elif color == 255:
-                    packed_pixels.append(7)
-                else:
-                    min_diff = 1024
-                    closest_match = -1
-                    for idx in range(len(pallet)):
-                        diff = abs(color-pallet[idx])
-                        if diff <= min_diff:
-                            closest_match = idx
-                            min_diff = diff
-                    if closest_match == -1:
-                        raise Exception("Some wired stuff happend")
-                    packed_pixels.append( closest_match )
-            return ( int(new_a0), int(new_a1), packed_pixels )
-        def pack_color( pixels ):
-            packed_color_pixels = []
-            new_c0 = min(pixels)
-            new_c1 = max(pixels)
-            #new_c0 = (
-                #min([pixel[0] for pixel in pixels]),
-                #min([pixel[1] for pixel in pixels]),
-                #min([pixel[2] for pixel in pixels])
-                #)
-            #new_c1 = (
-                #max([pixel[0] for pixel in pixels]),
-                #max([pixel[1] for pixel in pixels]),
-                #max([pixel[2] for pixel in pixels])
-                #)
-            pallet = [
-                new_c0,
-                new_c1,
-                (
-                    (2*new_c0[0]+1*new_c1[0])/3,
-                    (2*new_c0[1]+1*new_c1[1])/3,
-                    (2*new_c0[2]+1*new_c1[2])/3,
-                ),
-                (
-                    (1*new_c0[0]+2*new_c1[0])/3,
-                    (1*new_c0[1]+2*new_c1[1])/3,
-                    (1*new_c0[2]+2*new_c1[2])/3,
-                ) if new_c0 > new_c1 else ( 0, 0, 0 )
-                ]
-            for color in pixels:
-                min_diff = 65536
-                closest_match = -1
-                for idx in range(len(pallet)):
-                    prioritize_green_factor = 1
-                    diff = abs(color[0]-pallet[idx][0]) + abs(color[1]-pallet[idx][1])*prioritize_green_factor + abs(color[2]-pallet[idx][2])
-                    if diff <= min_diff:
-                        closest_match = idx
-                        min_diff = diff
-                if closest_match == -1:
-                    raise Exception("Some wired stuff happend")
-                packed_color_pixels.append( closest_match )
-            return (
-                pack('H',
-                    ( int(new_c0[0]/4) & 31 ) << 11 |
-                    ( int(new_c0[1]/4) & 63 ) << 5 |
-                    ( int(new_c0[2]/4) & 31 )
-                ),
-                pack('H',
-                    ( int(new_c1[0]/4) & 31 ) << 11 |
-                    ( int(new_c1[1]/4) & 63 ) << 5 |
-                    ( int(new_c1[2]/4) & 31 )
-                ),
-                packed_color_pixels
-                )
-
         pixels = [(x,y) for x in range(4) for y in range(4)]
         keep_pixels = set([ pixel for pixel in pixels if filter_constant_pixels( pixel, mirror_axis, mirror_keep_side, (4,4) ) ])
-        if mirror_keep_side == -1:
-            old_image = EmbeddedScMapDDSImage( image.data )
-        else:
-            old_image = image
+        old_image = EmbeddedScMapDDSImage( image.data )
         x_blocks = image.size[0] // 4
         y_blocks = image.size[1] // 4
-        for mip_map_level in range(max(image.mip_map_count,1)):
+        for mip_map_level in range(max(image.header.mip_map_count,1)):
             blocks_size = ( x_blocks, y_blocks )
             blocks = [(x,y) for x in range(blocks_size[0]) for y in range(blocks_size[1])]
             keep_blocks = set([ block for block in blocks if filter_constant_pixels( block, mirror_axis, mirror_keep_side, blocks_size ) ])
@@ -302,9 +176,6 @@ def main():
                     block_data = list(old_image.get_block( x, y, mip_map_level ))
                     old_alpha = block_data[2]
                     old_color = block_data[5]
-                    if image.is_normal_map:
-                        old_alpha = unpack_alpha( block_data )
-                        old_color = unpack_color( block_data )
                     new_alpha = old_alpha[:]
                     new_color = old_color[:]
                     if block == mirror_block:
@@ -316,22 +187,6 @@ def main():
                         pixel_address = 4*pixel[1] + pixel[0]
                         new_alpha[mirror_pixel_address] = old_alpha[pixel_address]
                         new_color[mirror_pixel_address] = old_color[pixel_address]
-                        if image.is_normal_map:
-                            if mirror_axis in 'x':
-                                new_alpha[mirror_pixel_address] = 255 - old_alpha[pixel_address]
-                            elif mirror_axis in 'y':
-                                new_color[mirror_pixel_address][1] = 255 - old_color[pixel_address][1]
-                            elif mirror_axis in 'xy':
-                                new_alpha[mirror_pixel_address] = old_color[pixel_address][1]
-                                new_color[mirror_pixel_address][1] = old_alpha[pixel_address]
-                            elif mirror_axis in 'yx':
-                                new_alpha[mirror_pixel_address] = 255 - old_color[pixel_address][1]
-                                new_color[mirror_pixel_address][1] = 255 - old_alpha[pixel_address]
-                            else:
-                                raise Exception("IMPLEMENT ME!!!")
-                    if image.is_normal_map:
-                        block_data[0], block_data[1], new_alpha = pack_alpha( new_alpha )
-                        block_data[3], block_data[4], new_color = pack_color( new_color )
                     block_data[2] = new_alpha
                     block_data[5] = new_color
                     image.set_block( mirror_x, mirror_y, mip_map_level, block_data )
@@ -354,7 +209,12 @@ def main():
                     mirror_gray_image( _image, pixels, keep_pixels, mirror_axis, mirror_keep_side )
                 image.from_grays(images)
             else:
-                mirror_compressed_dds_image( image, mirror_axis, mirror_keep_side )
+                if image.is_normal_map:
+                    new_image = image.as_uncompressed()
+                    mirror_uncompressed_dds_image( new_image, mirror_axis, mirror_keep_side )
+                    image.__init__( new_image.data, new_image.is_normal_map )
+                else:
+                    mirror_compressed_dds_image( image, mirror_axis, mirror_keep_side )
         else:
             raise Exception("get_mirror_pixel_address: not implemented")
 
@@ -395,7 +255,7 @@ def main():
                 print("running {}".format(' '.join(cmd)))
                 subprocess.run( cmd )
 
-    if mirror_axis == 'x':
+    if mirror_axis == 'y':
         def rotate_decal(rotation):
             return ( rotation[2], math.pi/2 - rotation[1], -rotation[0] )
         def rotate_prop( rotationX, rotationY, rotationZ ):
@@ -404,7 +264,7 @@ def main():
             new_rotationY = (  rotationY[0],   rotationY[1], rotationY[2]  )
             new_rotationZ = ( -math.sin(rad),  rotationZ[1], math.cos(rad) )
             return ( new_rotationX, new_rotationY, new_rotationZ )
-    elif mirror_axis == 'y':
+    elif mirror_axis == 'x':
         def rotate_decal(rotation):
             return ( rotation[2], -math.pi/2 - rotation[1], rotation[0] )
         def rotate_prop( rotationX, rotationY, rotationZ ):
@@ -473,7 +333,7 @@ def main():
                     cut_off_lod,near_cut_off_lod,remove_tick
                 ) = decal
 
-                new_position = mirror_position3( position, mirror_axis, map_infos['map_size'] )
+                new_position = mirror_position3( position, mirror_axis, map_infos['ingame_map_size'] )
                 new_rotation = rotate_decal( rotation )
 
                 is_normal_map = ( decalType == 2 )
@@ -516,7 +376,7 @@ def main():
         for prop in map_infos['props']:
             (blueprintPath,position,rotationX,rotationY,rotationZ,scale) = prop
             # create mirrored parameters
-            new_position = mirror_position3( position, mirror_axis, map_infos['map_size'] )
+            new_position = mirror_position3( position, mirror_axis, map_infos['ingame_map_size'] )
             new_rotation = rotate_prop(rotationX,rotationY,rotationZ)
             # add version with mirrored parameters to props list
             new_props.append( (blueprintPath,new_position,*new_rotation,scale) )
@@ -545,7 +405,7 @@ def main():
 
 def mirror_stuff_in_save_lua( path_to_infile_scmap_save_lua, path_to_new_scmap_save_lua, map_infos, mirror_axis, mirror_position3 ):
 
-    if mirror_axis == 'x':
+    if mirror_axis == 'y':
         unitTypeTranslation = {
             'xec8001': 'xec8003',
             'xec8002': 'xec8004',
@@ -564,7 +424,7 @@ def mirror_stuff_in_save_lua( path_to_infile_scmap_save_lua, path_to_new_scmap_s
             'xec8008': (-1, 0, 1), #  |-
             'xec8003': ( 0, 0,-1), #  |
         }
-    elif mirror_axis == 'y':
+    elif mirror_axis == 'x':
         unitTypeTranslation = {
         }
         unitPositionFix = {
@@ -628,7 +488,7 @@ def mirror_stuff_in_save_lua( path_to_infile_scmap_save_lua, path_to_new_scmap_s
         partial(
             partial(duplicate_mirror_and_rotate,re.compile("/[^/]*")),
                 mirror_axis,
-                partial(translate_unit_position,mirror_axis=mirror_axis,map_size=map_infos['map_size']),
+                partial(translate_unit_position,mirror_axis=mirror_axis,map_size=map_infos['ingame_map_size']),
                 dummyUnitRotation,
                 partial(translateUnitType,unitTypeTranslation),
         ), scenario )
@@ -639,7 +499,7 @@ def mirror_stuff_in_save_lua( path_to_infile_scmap_save_lua, path_to_new_scmap_s
         partial(
             partial(duplicate_mirror_and_rotate,re.compile("/[^/]*")),
                 mirror_axis,
-                partial(translate_unit_position,mirror_axis=mirror_axis,map_size=map_infos['map_size']),
+                partial(translate_unit_position,mirror_axis=mirror_axis,map_size=map_infos['ingame_map_size']),
                 dummyUnitRotation,
                 partial(translateUnitType,unitTypeTranslation),
         ), scenario )

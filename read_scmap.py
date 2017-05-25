@@ -1,3 +1,4 @@
+from collections import namedtuple
 from struct import pack, unpack, calcsize
 import math
 
@@ -27,6 +28,63 @@ class EmbeddedScMapGrayImage( EmbeddedScMapImage ):
         self.depth = depth
 
 class EmbeddedScMapDDSImage( EmbeddedScMapImage ):
+    DDSMAGIC = b'DDS '
+    FLAGS = {
+        'DDSD_CAPS': 0x1,
+        'DDSD_HEIGHT': 0x2,
+        'DDSD_WIDTH': 0x4,
+        'DDSD_PITCH': 0x8,
+        'DDSD_PIXELFORMAT': 0x1000,
+        'DDSD_MIPMAPCOUNT': 0x20000,
+        'DDSD_LINEARSIZE': 0x80000,
+        'DDSD_DEPTH': 0x800000,
+    }
+    PPF_FLAGS = {
+        'DDPF_ALPHAPIXELS': 0x1,
+        'DDPF_ALPHA': 0x2,
+        'DDPF_FOURCC': 0x4,
+        'DDPF_RGB': 0x40,
+        'DDPF_YUV': 0x200,
+        'DDPF_LUMINANCE': 0x20000,
+    }
+    CAPS = {
+        'DDSCAPS_COMPLEX': 0x8,
+        'DDSCAPS_MIPMAP': 0x400000,
+        'DDSCAPS_TEXTURE': 0x1000,
+        'DDSCAPS2_CUBEMAP': 0x200,
+    }
+    CAPS2 = {
+        'DDSCAPS2_CUBEMAP_POSITIVEX': 0x400,
+        'DDSCAPS2_CUBEMAP_NEGATIVEX': 0x800,
+        'DDSCAPS2_CUBEMAP_POSITIVEY': 0x1000,
+        'DDSCAPS2_CUBEMAP_NEGATIVEY': 0x2000,
+        'DDSCAPS2_CUBEMAP_POSITIVEZ': 0x4000,
+        'DDSCAPS2_CUBEMAP_NEGATIVEZ': 0x8000,
+        'DDSCAPS2_VOLUME': 0x200000,
+    }
+    HEADER_FIELDS = [
+            'header_size',
+            'flags',
+            'height',
+            'width',
+            'pitch_or_linear_size',
+            'depth',
+            'mip_map_count',
+            'reserved1_1','reserved1_2','reserved1_3','reserved1_4','reserved1_5','reserved1_6','reserved1_7','reserved1_8','reserved1_9','reserved1_10','reserved1_11',
+            'ppf_header_size',
+            'ppf_flags',
+            'ppf_four_cc',
+            'ppf_rgb_bit_count',
+            'ppf_red_bit_mask',
+            'ppf_green_bit_mask',
+            'ppf_blue_bit_mask',
+            'ppf_alpha_bit_mask',
+            'caps',
+            'caps2',
+            'caps3',
+            'caps4',
+            'reserved2'
+            ]
     class FormatException(Exception):
         pass
     # https://msdn.microsoft.com/de-de/library/windows/desktop/bb943982(v=vs.85).aspx
@@ -34,36 +92,28 @@ class EmbeddedScMapDDSImage( EmbeddedScMapImage ):
     has_header = True
     def __init__( self, data, is_normal_map=False ):
         super().__init__( data )
-        self.flags = unpack('I',data[2*4:3*4])[0]
-        self.height = unpack('I',data[3*4:4*4])[0]
-        self.width = unpack('I',data[4*4:5*4])[0]
-        self.pitch_or_linear_size = unpack('I',data[5*4:6*4])[0]
-        self.depth = unpack('I',data[6*4:7*4])[0]
-        self.mip_map_count = unpack('I',data[7*4:8*4])[0]
-        self.flags2 = unpack('I',data[20*4:21*4])[0]
-        self.four_cc = data[21*4:22*4]
-        self.rgb_bit_count = unpack('I',data[22*4:23*4])[0]
-        self.red_bit_mask = unpack('I',data[23*4:24*4])[0]
-        self.green_bit_mask = unpack('I',data[24*4:25*4])[0]
-        self.blue_bit_mask = unpack('I',data[25*4:26*4])[0]
-        self.alpha_bit_mask = unpack('I',data[26*4:27*4])[0]
-        self.caps = unpack('I',data[27*4:28*4])[0]
-        self.caps2 = unpack('I',data[28*4:29*4])[0]
-        self.caps3 = unpack('I',data[29*4:30*4])[0]
-        self.caps4 = unpack('I',data[30*4:31*4])[0]
-        #self.debug_print()
-        self.size = ( int(self.width), int(self.height) )
+        self.magic = data[0:4]
+        assert( self.magic == self.DDSMAGIC )
+        Header = namedtuple( 'Header', self.HEADER_FIELDS )
+        self.header = Header._make(unpack('31I',data[1*4:32*4]))
+        self.size = ( int(self.header.width), int(self.header.height) )
         self.is_normal_map = is_normal_map
-        self.has_uncompressed_rgb_data = self.flags2 & 0x40
+        self.has_uncompressed_rgb_data = self.header.ppf_flags & self.PPF_FLAGS['DDPF_RGB']
+        self.is_DXT5 = self.header.ppf_four_cc == 894720068
         self.mip_map_infos = [ (128,self.size) ]
-        for mip_map_level in range(1,self.mip_map_count):
+        if self.has_uncompressed_rgb_data:
+            self.depth = self.header.ppf_rgb_bit_count
+            pixel_bytes = self.depth//8
+        else:
+            pixel_bytes = 1
+        for mip_map_level in range(1,self.header.mip_map_count):
             previous_offset, previous_size = self.mip_map_infos[mip_map_level-1]
-            previous_data_size = previous_size[0]*previous_size[1]
+            previous_data_size = previous_size[0]*previous_size[1]*pixel_bytes
             _size = ( previous_size[0] // 2, previous_size[1] // 2 )
             self.mip_map_infos.append( (previous_offset+previous_data_size,_size ) )
-        pixel_count = self.size[0] * self.size[1]
+
     def get_block( self, x, y, mip_map_level ):
-        if self.four_cc != b'DXT5':
+        if not self.is_DXT5:
             raise self.FormatException()
         mip_map_offset, mip_map_size = self.mip_map_infos[mip_map_level]
         block_offset = mip_map_offset + ( mip_map_size[0]//4 * int(y) + int(x) ) * 16
@@ -72,15 +122,13 @@ class EmbeddedScMapDDSImage( EmbeddedScMapImage ):
         a1 = self.data[block_offset+1]
         pixel_alphas = sum([ self.data[block_offset+2+i] << i*8 for i in range(6) ])
         pixel_alphas = [ ( pixel_alphas & ( 7 << i*3 )) >> i*3 for i in range(16) ]
-        #pixel_alphas = ( pixel_alphas & ( 7 << pixel_offset*3 )) >> pixel_offset*3
         c0 = self.data[block_offset+8:block_offset+10]
         c1 = self.data[block_offset+10:block_offset+12]
         pixel_colors = sum([ self.data[block_offset+12+i] << i*8 for i in range(4) ])
         pixel_colors = [ ( pixel_colors & ( 3 << i*2 )) >> i*2 for i in range(16) ]
-        #pixel_colors = ( pixel_colors & ( 3 << pixel_offset*2 ))
         return ( a0, a1, pixel_alphas, c0, c1, pixel_colors )
     def set_block( self, x, y, mip_map_level, data, update_pallets=True ):
-        if self.four_cc != b'DXT5':
+        if not self.is_DXT5:
             raise self.FormatException()
         mip_map_offset, mip_map_size = self.mip_map_infos[mip_map_level]
         block_offset = mip_map_offset + ( mip_map_size[0]//4 * int(y) + int(x) ) * 16
@@ -90,15 +138,11 @@ class EmbeddedScMapDDSImage( EmbeddedScMapImage ):
             self.data[block_offset+0] = a0
             self.data[block_offset+1] = a1
         pixel_alphas = sum([ pixel_alphas[i] << i*3 for i in range(16) ])
-        #_pixel_alphas = sum([ self.data[block_offset+2+i] << i*8 for i in range(6) ])
-        #pixel_alphas = ( _pixel_alphas & ( 3 << pixel_offset*3 )) | ( pixel_alphas << pixel_offset*3 )
         self.data[block_offset+2:block_offset+8] = bytes([ ( pixel_alphas & ( 0xff << i*8 ) ) >> i*8 for i in range(6) ])
         if update_pallets:
             self.data[block_offset+8:block_offset+10] = c0
             self.data[block_offset+10:block_offset+12] = c1
         pixel_colors = sum([ pixel_colors[i] << i*2 for i in range(16) ])
-        #_pixel_colors = sum([ self.data[block_offset+12+i] << i*8 for i in range(4) ])
-        #pixel_colors = ( _pixel_colors & ( 3 << pixel_offset*3 )) | ( pixel_colors << pixel_offset*3 )
         self.data[block_offset+12:block_offset+16] = bytes([ ( pixel_colors & ( 0xff << i*8 ) ) >> i*8 for i in range(4) ])
     def as_grays( self ):
         if not self.has_uncompressed_rgb_data:
@@ -124,8 +168,237 @@ class EmbeddedScMapDDSImage( EmbeddedScMapImage ):
             for ch in range(4):
                 pixel[ch] = grays[ch].data[i]
             self.data[128+i*4:128+i*4+5] = pixel
+    def as_uncompressed( self ):
+        assert( self.is_DXT5 )
+        mip_map_count = self.header.mip_map_count
+        pixel_bytes = 4
+        new_size = self.size[0] * self.size[1] * pixel_bytes + 128
+        last_size = self.size[0] * self.size[1] * pixel_bytes
+        new_offsets = [128]
+        for mip_map_level in range(1,max(mip_map_count,1)):
+            new_offsets.append( new_size )
+            last_size = last_size // 4
+            new_size += last_size
+        new_data = bytearray( new_size )
+        x_blocks = self.size[0] // 4
+        y_blocks = self.size[1] // 4
+        in_block_iter = [(x,y) for x in range(4) for y in range(4)]
+        for mip_map_level in range(max(mip_map_count,1)):
+            blocks_size = ( x_blocks, y_blocks )
+            blocks = [(x,y) for x in range(blocks_size[0]) for y in range(blocks_size[1])]
+            current_offset = new_offsets[ mip_map_level ]
+            mip_map_size = ( x_blocks*4, y_blocks*4 )
+            for block in blocks:
+                block_pos_x, block_pos_y = block
+                block_data = list(self.get_block( block_pos_x, block_pos_y, mip_map_level ))
+                pixels_color = EmbeddedScMapDDSImage.unpack_color( block_data )
+                pixels_alpha = EmbeddedScMapDDSImage.unpack_alpha( block_data )
+                for in_x, in_y in in_block_iter:
+                    x = in_x + block_pos_x * 4
+                    y = in_y + block_pos_y * 4
+                    if x >= mip_map_size[0] or y >= mip_map_size[1]:
+                        # TODO FIXME remove print
+                        print("skip pixel {}x{}".format(x,y))
+                        continue
+                    absolute_pixel_address = mip_map_size[0] * y * pixel_bytes + x * pixel_bytes + current_offset
+                    block_pixel_index = in_y*4 + in_x
+                    pixel_color = pixels_color[block_pixel_index]
+                    pixel_alpha = pixels_alpha[block_pixel_index]
+                    if pixel_bytes == 4:
+                        new_data[absolute_pixel_address:absolute_pixel_address+4] = [
+                            round(pixel_color[2]),
+                            round(pixel_color[1]),
+                            round(pixel_color[0]),
+                            round(pixel_alpha),
+                            ]
+                    else:
+                        assert(False)
+
+            x_blocks //= 2
+            y_blocks //= 2
+        # magic, header size
+        new_data[0:8] = self.data[0:8]
+        # flags: ['DDSD_CAPS', 'DDSD_HEIGHT', 'DDSD_WIDTH', 'DDSD_PITCH', 'DDSD_PIXELFORMAT']
+        new_data[8:12] = pack('I', 135183 )
+        # height, width
+        new_data[12:20] = self.data[12:20]
+        # pitch_or_linear_size
+        new_data[20:24] = pack('I', self.header.width * pixel_bytes )
+        # mip_map_count
+        new_data[28:32] = pack('I', mip_map_count )
+        # ppf_header_size
+        new_data[76:80] = pack('I', 32 )
+        # ppf_flags: ['DDPF_ALPHAPIXELS', 'DDPF_RGB']
+        new_data[80:84] = pack('I', 65 )
+        # ppf_rgb_bit_count
+        new_data[88:92] = pack('I', 32 )
+        # ppf_red_bit_mask
+        new_data[92:96] = pack('I', 255 << 16 )
+        # ppf_green_bit_mask
+        new_data[96:100] = pack('I', 255 << 8 )
+        # ppf_blue_bit_mask
+        new_data[100:104] = pack('I', 255 << 0 )
+        # ppf_alpha_bit_mask
+        new_data[104:108] = pack('I', 255 << 24 )
+        # caps
+        new_data[108:112] = self.data[108:112]
+
+        new_image = EmbeddedScMapDDSImage( new_data, self.is_normal_map )
+        return new_image
+
     def debug_print( self ):
-        print("{}x{} flags:{:08x} pitch_or_linear_size:{} depth:{} mip_map_count:{} flags2:{:08x} four_cc:{} rgb_bit_count:{} caps:{:08x} caps2:{:08x} caps3:{:08x} caps4:{:08x} red_bit_mask:{:08x} green_bit_mask:{:08x} blue_bit_mask:{:08x} alpha_bit_mask:{:08x} data_size:{}".format(self.width,self.height,self.flags,self.pitch_or_linear_size,self.depth,self.mip_map_count,self.flags2,self.four_cc,self.rgb_bit_count,self.caps,self.caps2,self.caps3,self.caps4,self.red_bit_mask,self.green_bit_mask,self.blue_bit_mask,self.alpha_bit_mask,len(self.data)))
+        def get_active_keys( keys_value_map, bitmap ):
+            l=[]
+            for k in keys_value_map:
+                if bitmap & keys_value_map[k]:
+                    l.append(k)
+            return l
+        print(self.header)
+        print("flags: {}".format( get_active_keys( self.FLAGS, self.header.flags )))
+        print("ppf_flags: {}".format( get_active_keys( self.PPF_FLAGS, self.header.ppf_flags )))
+        print("caps: {}".format( get_active_keys( self.CAPS, self.header.caps )))
+        print("caps2: {}".format( get_active_keys( self.CAPS2, self.header.caps2 )))
+
+    def unpack_alpha( block ):
+        alpha_pixels = []
+        a0, a1 = block[0:2]
+        for idx in block[2]:
+            if idx == 0:
+                alpha_pixels.append( a0 )
+            elif idx == 1:
+                alpha_pixels.append( a1 )
+            elif idx == 2:
+                alpha_pixels.append( ((4*a0+1*a1)/5) if a0 <= a1 else ((6*a0+1*a1)/7) )
+            elif idx == 3:
+                alpha_pixels.append( ((3*a0+2*a1)/5) if a0 <= a1 else ((5*a0+2*a1)/7) )
+            elif idx == 4:
+                alpha_pixels.append( ((2*a0+3*a1)/5) if a0 <= a1 else ((4*a0+3*a1)/7) )
+            elif idx == 5:
+                alpha_pixels.append( ((1*a0+4*a1)/5) if a0 <= a1 else ((3*a0+4*a1)/7) )
+            elif idx == 6:
+                alpha_pixels.append( 0 if a0 <= a1 else ((2*a0+5*a1)/7) )
+            elif idx == 7:
+                alpha_pixels.append( 255 if a0 <= a1 else ((1*a0+6*a1)/7) )
+            else:
+                raise Exception("Some wired stuff happend")
+        return alpha_pixels
+    def unpack_color( block ):
+        color_pixels = []
+        c0, c1 = ( unpack('H',block[3])[0], unpack('H',block[4])[0] )
+        r0, r1 = ( ( c0 >> 11 ) & 31, ( c1 >> 11 ) & 31 )
+        g0, g1 = ( ( c0 >> 5 ) & 63, ( c1 >> 5 ) & 63 )
+        b0, b1 = ( c0 & 31, c1 & 31 )
+        # normalize to 8 bit
+        r0, r1 = ( r0*8, r1*8 )
+        g0, g1 = ( g0*4, g1*4 )
+        b0, b1 = ( b0*8, b1*8 )
+        for idx in block[5]:
+            if idx == 0:
+                color_pixels.append( [r0, g0, b0] )
+            elif idx == 1:
+                color_pixels.append( [r1, g1, b1] )
+            elif idx == 2:
+                color_pixels.append(
+                    [
+                        (r0+r1)/2,
+                        (g0+g1)/2,
+                        (b0+b1)/2
+                    ] if ( r0, g0, b0 ) <= ( r1, g1, b1 ) else
+                    [
+                        (2*r0+1*r1)/3,
+                        (2*g0+1*g1)/3,
+                        (2*b0+1*b1)/3
+                    ] )
+            elif idx == 3:
+                color_pixels.append(
+                    [
+                        0,
+                        0,
+                        0
+                    ] if ( r0, g0, b0 ) <= ( r1, g1, b1 ) else
+                    [
+                        (1*r0+2*r1)/3,
+                        (1*g0+2*g1)/3,
+                        (1*b0+2*b1)/3
+                    ] )
+            else:
+                raise Exception("Some wired stuff happend")
+        return color_pixels
+    def pack_alpha( pixels ):
+        try:
+            new_a0 = min([ color for color in pixels if color != 0 ])
+            new_a1 = max([ color for color in pixels if color != 0 and color != 255 ])
+        except ValueError as e:
+            new_a0 = 0
+            new_a1 = 0
+        packed_pixels = []
+        pallet = [
+            new_a0,
+            new_a1,
+            ((4*new_a0+1*new_a1)/5),
+            ((3*new_a0+2*new_a1)/5),
+            ((2*new_a0+3*new_a1)/5),
+            ((1*new_a0+4*new_a1)/5) ]
+        for color in pixels:
+            if color == 0:
+                packed_pixels.append(6)
+            elif color == 255:
+                packed_pixels.append(7)
+            else:
+                min_diff = 1024
+                closest_match = -1
+                for idx in range(len(pallet)):
+                    diff = abs(color-pallet[idx])
+                    if diff <= min_diff:
+                        closest_match = idx
+                        min_diff = diff
+                if closest_match == -1:
+                    raise Exception("Some wired stuff happend")
+                packed_pixels.append( closest_match )
+        return ( int(new_a0), int(new_a1), packed_pixels )
+    def pack_color( pixels ):
+        packed_color_pixels = []
+        new_c0 = min(pixels)
+        new_c1 = max(pixels)
+        pallet = [
+            new_c0,
+            new_c1,
+            (
+                (2*new_c0[0]+1*new_c1[0])/3,
+                (2*new_c0[1]+1*new_c1[1])/3,
+                (2*new_c0[2]+1*new_c1[2])/3,
+            ),
+            (
+                (1*new_c0[0]+2*new_c1[0])/3,
+                (1*new_c0[1]+2*new_c1[1])/3,
+                (1*new_c0[2]+2*new_c1[2])/3,
+            ) if new_c0 > new_c1 else ( 0, 0, 0 )
+            ]
+        for color in pixels:
+            min_diff = 65536
+            closest_match = -1
+            for idx in range(len(pallet)):
+                prioritize_green_factor = 1
+                diff = abs(color[0]-pallet[idx][0]) + abs(color[1]-pallet[idx][1])*prioritize_green_factor + abs(color[2]-pallet[idx][2])
+                if diff <= min_diff:
+                    closest_match = idx
+                    min_diff = diff
+            if closest_match == -1:
+                raise Exception("Some wired stuff happend")
+            packed_color_pixels.append( closest_match )
+        return (
+            pack('H',
+                ( int(new_c0[0]/4) & 31 ) << 11 |
+                ( int(new_c0[1]/4) & 63 ) << 5 |
+                ( int(new_c0[2]/4) & 31 )
+            ),
+            pack('H',
+                ( int(new_c1[0]/4) & 31 ) << 11 |
+                ( int(new_c1[1]/4) & 63 ) << 5 |
+                ( int(new_c1[2]/4) & 31 )
+            ),
+            packed_color_pixels
+            )
 
 def read_scmap( scmap_path, debug_print_enabled=False ):
 
