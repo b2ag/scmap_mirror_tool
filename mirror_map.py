@@ -74,12 +74,12 @@ def main():
         half_height = size[1]/2
         m = size[0] / size[1]
         x,y = pixel_coord
-        if mirror_axis == 'y':
+        if mirror_axis == 'x':
             if keep_side == 1 and x >= half_width:
                 return False
             if keep_side == 2 and x < half_width:
                 return False
-        elif mirror_axis == 'x':
+        elif mirror_axis == 'y':
             if keep_side == 1 and y >= half_height:
                 return False
             if keep_side == 2 and y < half_height:
@@ -99,9 +99,9 @@ def main():
     def get_mirror_position( pixel_coord, mirror_axis, size ):
         x,y = pixel_coord
         m = size[0] / size[1]
-        if mirror_axis == 'y':
+        if mirror_axis == 'x':
             return ( size[0] - 1 - x, y )
-        elif mirror_axis == 'x':
+        elif mirror_axis == 'y':
             return ( x, size[1] - 1 - y )
         elif mirror_axis == 'xy':
             return ( y*m, x/m )
@@ -255,7 +255,7 @@ def main():
                 print("running {}".format(' '.join(cmd)))
                 subprocess.run( cmd )
 
-    if mirror_axis == 'y':
+    if mirror_axis == 'x':
         def rotate_decal(rotation):
             return ( rotation[2], math.pi/2 - rotation[1], -rotation[0] )
         def rotate_prop( rotationX, rotationY, rotationZ ):
@@ -264,7 +264,7 @@ def main():
             new_rotationY = (  rotationY[0],   rotationY[1], rotationY[2]  )
             new_rotationZ = ( -math.sin(rad),  rotationZ[1], math.cos(rad) )
             return ( new_rotationX, new_rotationY, new_rotationZ )
-    elif mirror_axis == 'x':
+    elif mirror_axis == 'y':
         def rotate_decal(rotation):
             return ( rotation[2], -math.pi/2 - rotation[1], rotation[0] )
         def rotate_prop( rotationX, rotationY, rotationZ ):
@@ -405,7 +405,7 @@ def main():
 
 def mirror_stuff_in_save_lua( path_to_infile_scmap_save_lua, path_to_new_scmap_save_lua, map_infos, mirror_axis, mirror_position3 ):
 
-    if mirror_axis == 'y':
+    if mirror_axis == 'x':
         unitTypeTranslation = {
             'xec8001': 'xec8003',
             'xec8002': 'xec8004',
@@ -424,7 +424,7 @@ def mirror_stuff_in_save_lua( path_to_infile_scmap_save_lua, path_to_new_scmap_s
             'xec8008': (-1, 0, 1), #  |-
             'xec8003': ( 0, 0,-1), #  |
         }
-    elif mirror_axis == 'x':
+    elif mirror_axis == 'y':
         unitTypeTranslation = {
         }
         unitPositionFix = {
