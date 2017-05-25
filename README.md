@@ -19,8 +19,7 @@ Limitations
   * Option "keep side" doesn't remove units/props/decals on mirror side prior to mirroring
     * This is intentional at least for decals as they can have origin on mirrored side and still span more of the original side
     * For units and props it's just not implemented
-  * Mirroring normal maps (e.g. for decals) leads to compression artifacts as a result of swapping the 8 bit alpha channel with the 6 bit green channel
-  * Mirrored preview doesn't have correct lighting on mirrored side
+  * Mirrored preview image doesn't have correct lighting on mirrored side
     * Workaround: Save mirrored version with SC map editor to get preview re-rendered 
   * Unit meshes are not getting mirrored
     * Yeah, what can I do about this?
