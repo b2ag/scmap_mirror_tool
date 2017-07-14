@@ -285,7 +285,7 @@ def main():
             return ( new_rotationX, new_rotationY, new_rotationZ )
     elif mirror_axis == 'yx':
         def rotate_decal(rotation):
-            return ( rotation[2], math.pi + rotation[1], -rotation[0] )
+            return ( rotation[2], math.pi - rotation[1], -rotation[0] )
         # not really posible to mirror the mesh by rotation...
         def rotate_prop( rotationX, rotationY, rotationZ ):
             rad = math.acos( rotationX[0] ) + math.pi
