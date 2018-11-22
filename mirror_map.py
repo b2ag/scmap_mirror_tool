@@ -466,6 +466,7 @@ def mirror_stuff_in_save_lua( path_to_infile_scmap_save_lua, path_to_new_scmap_s
 
     path_to_old_scmap_save_module, _ = os.path.splitext( path_to_infile_scmap_save_lua )
 
+    old_working_directory = os.getcwd()
     os.chdir(os.path.dirname(path_to_infile_scmap_save_lua))
 
     # import map_save.lua with lupa
@@ -477,8 +478,9 @@ def mirror_stuff_in_save_lua( path_to_infile_scmap_save_lua, path_to_new_scmap_s
     lua.execute('VECTOR3=function(x,y,z) return "VECTOR3( "..x..", "..y..", "..z.." )" end')
     lua.execute('RECTANGLE=function(a,b,c,d) return "RECTANGLE( "..a..", "..b..", "..c..", "..d.." )" end')
     lua.execute('GROUP=function(x) return function() return x end end')
-    lua.require( os.path.relpath(path_to_old_scmap_save_module) )
+    lua.require( os.path.relpath(os.path.basename( path_to_old_scmap_save_module )) )
 
+    os.chdir(old_working_directory)
 
     scenario = lua.table_from({'Scenario': lua.eval('Scenario') })
 
@@ -758,7 +760,8 @@ def write_output_scmap( path_to_old_scmap, path_to_new_scmap, infos ):
                     new_scmap.write(pack('I',len(image.data)))
                 new_scmap.write( image.data )
                 scmap.seek( end_offset )
-
+            if scmap.tell() < infos["propsBlockStartOffset"]:
+                new_scmap.write( scmap.read( infos["propsBlockStartOffset"] - scmap.tell() ))
             write_props( new_scmap, infos['props'] )
 
 def write_decals( new_scmap, decalsList ):
