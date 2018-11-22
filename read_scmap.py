@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 from collections import namedtuple
 from struct import pack, unpack, calcsize
 import math
@@ -9,6 +11,8 @@ def read_c_string(f):
     buf = b''
     while True:
         b = f.read(1)
+        if b == b'':
+            raise Exception("Premature end of file at {} bytes offset".format(f.tell()))
         if b is None or b == b'\0':
             return buf
         else:
@@ -967,3 +971,11 @@ def read_scmap( scmap_path, debug_print_enabled=False ):
         infos["props"] = props + listOfDebugProps
 
     return infos
+
+def main():
+    import sys
+    read_scmap( sys.argv[1], True )
+
+if __name__ == '__main__':
+    main()
+
